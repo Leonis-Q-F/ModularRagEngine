@@ -9,25 +9,26 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from markitdown import MarkItDown
 from pydantic import BaseModel, PrivateAttr
 from pydantic_settings import BaseSettings
 
-from universal_rag_chunker1.config import settings
-from universal_rag_chunker1.models.schemes import FileType
-from universal_rag_chunker1.utils.ocr import OpenAIVisionClient, PaddleOCRClient
+from universal_rag_chunker.config import settings
+from universal_rag_chunker.models.schemes import FileType, SourceDocument
+from universal_rag_chunker.utils.ocr import OpenAIVisionClient, PaddleOCRClient
 
 logger = logging.getLogger(__name__)
 
 class DocumentLoader(BaseModel):
     """
-    文档加载器，用于将各种格式的文档转换为 Markdown 格式。
+    文档加载器，用于将各种格式的文档转换为 SourceDocument。
     """
 
-    _md_client: MarkItDown = PrivateAttr(default_factory=MarkItDown)
-    _settings: BaseSettings = PrivateAttr(default=settings)
-    _pdf_converter_client: Any = PrivateAttr(default=None)
+    _md_client: MarkItDown = PrivateAttr(default_factory=MarkItDown) # MarkItDown 实例
+    _settings: BaseSettings = PrivateAttr(default=settings) # 全局配置
+    _pdf_converter_client: Any = PrivateAttr(default=None) # PDF 转换模型
 
     @property
     def _pdf_converter(self) -> Any:
@@ -38,20 +39,25 @@ class DocumentLoader(BaseModel):
             self._pdf_converter_client = DocumentConverter()
         return self._pdf_converter_client
 
-    def convert_to_markdown(self, file_paths: str | list[str], use_ocr: bool = False) -> str | list[str]:
+    def load(self, file_paths: str | list[str], use_ocr: bool = False) -> SourceDocument | list[SourceDocument]:
         """
-        统一的路由执行入口。
-        支持传入单个文件路径（str）或文件路径列表（list）。
+        统一的文档加载入口。
+        支持传入单个文件路径或文件路径列表，并返回 SourceDocument 模型。
         """
         if isinstance(file_paths, list):
             return [self._load_single(fp, use_ocr=use_ocr) for fp in file_paths]
         return self._load_single(file_paths, use_ocr=use_ocr)
 
-    def _load_single(self, file_path: str, use_ocr: bool = False) -> str:
-        """单文件处理内部逻辑"""
+    def _load_single(self, file_path: str, use_ocr: bool = False) -> SourceDocument:
+        """处理单个文件，并封装为 SourceDocument。"""
         if not self.is_supported_file(file_path):
             raise ValueError(f"不支持的文件类型: {file_path}")
 
+        markdown = self._convert_single_to_markdown(file_path, use_ocr=use_ocr)
+        return self._build_source_document(file_path, markdown)
+
+    def _convert_single_to_markdown(self, file_path: str, use_ocr: bool = False) -> str:
+        """把单个文件转换为标准 Markdown 文本。"""
         ext = Path(file_path).suffix.lower().strip(".")
 
         if ext in ["txt", "md", "doc", "docx", "html", "htm"]:
@@ -64,12 +70,25 @@ class DocumentLoader(BaseModel):
             return self._structured_data_markdown_loader(file_path)
         raise RuntimeError(f"未预期的文件扩展名: {ext}")
 
+    def _build_source_document(self, file_path: str, parsed_md_content: str) -> SourceDocument:
+        """根据文件路径和解析后的 Markdown 构建 SourceDocument。"""
+        path = Path(file_path)
+        ext = path.suffix.lower().strip(".")
+        return SourceDocument(
+            doc_id=uuid4(),
+            file_name=path.name,
+            file_type=FileType(ext),
+            parsed_md_content=parsed_md_content,
+        )
+
     def is_supported_file(self, file_path: str) -> bool:
+        """判断文件扩展名是否在支持列表中。"""
         ext = Path(file_path).suffix.lower().strip(".")
         return ext in FileType._value2member_map_
 
     # 分支 1 ： 标准 Markdown转换
     def _standard_markdown_loader(self, file_path: str) -> str:
+        """处理可直接转换的文本类文档。"""
         try:
             return self._md_client.convert(file_path).text_content
         except Exception as exc:
@@ -105,13 +124,11 @@ class DocumentLoader(BaseModel):
             md_content = []
             for doc in docs:
                 text = doc.page_content.strip()
-                page_num = doc.metadata.get("page", 0) + 1
 
                 if not text:
                     continue
-
-                md_content.append(f"\n## --- Page {page_num} ---\n")
-                md_content.append(text)
+                else:
+                    md_content.append(text)
 
             if md_content:
                 return "\n\n".join(md_content)
@@ -152,6 +169,7 @@ class DocumentLoader(BaseModel):
 
     # 分支 3 ： OCR 转 Markdown
     def _ocr_markdown_loader(self, file_path: str) -> str:
+        """对图片文件执行 OCR，并返回 Markdown 文本。"""
         try:
             if self._settings.ocr_provider == "paddle":
                 client = PaddleOCRClient()
@@ -169,6 +187,7 @@ class DocumentLoader(BaseModel):
 
     # 分支 4 ： 结构化数据转换
     def _structured_data_markdown_loader(self, file_path: str) -> str:
+        """把 JSON、CSV、Excel 等结构化数据转换为 Markdown。"""
         path = Path(file_path)
         ext = path.suffix.lower()
 
@@ -193,6 +212,7 @@ class DocumentLoader(BaseModel):
         raise RuntimeError(f"不支持的结构化数据格式: {path.suffix}")
 
     def _read_json(self, file_path: Path) -> Any:
+        """读取 JSON 文件，并自动尝试常见中文编码。"""
         for encoding in ("utf-8", "utf-8-sig", "gb18030"):
             try:
                 return json.loads(file_path.read_text(encoding=encoding))
@@ -204,6 +224,7 @@ class DocumentLoader(BaseModel):
         raise RuntimeError(f"JSON 文件编码无法识别: {file_path}")
 
     def _read_csv(self, file_path: Path):
+        """读取 CSV 文件，并自动尝试常见中文编码。"""
         try:
             import pandas as pd
         except ImportError as exc:
@@ -218,6 +239,7 @@ class DocumentLoader(BaseModel):
         raise RuntimeError(f"CSV 文件编码无法识别: {file_path}")
 
     def _read_excel(self, file_path: Path):
+        """读取 Excel 文件，返回全部工作表。"""
         try:
             import pandas as pd
         except ImportError as exc:
@@ -229,6 +251,7 @@ class DocumentLoader(BaseModel):
             raise RuntimeError(f"Excel 读取失败: {exc}") from exc
 
     def _json_to_markdown(self, data: Any) -> str:
+        """把 JSON 数据转换为 Markdown 表格或代码块。"""
         if isinstance(data, list) and data and all(isinstance(item, dict) for item in data):
             try:
                 import pandas as pd
@@ -241,6 +264,7 @@ class DocumentLoader(BaseModel):
         return f"```json\n{json.dumps(data, ensure_ascii=False, indent=2)}\n```"
 
     def _dataframe_to_markdown(self, df) -> str:
+        """把 DataFrame 规范化后转换为 Markdown 表格。"""
         normalized = df.fillna("").copy()
 
         for column in normalized.columns:
@@ -251,3 +275,7 @@ class DocumentLoader(BaseModel):
             )
 
         return normalized.to_markdown(index=False)
+
+__all__ = [
+    "DocumentLoader"
+]
