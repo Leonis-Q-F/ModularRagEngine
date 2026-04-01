@@ -15,9 +15,9 @@ from markitdown import MarkItDown
 from pydantic import BaseModel, PrivateAttr
 from pydantic_settings import BaseSettings
 
-from universal_rag_chunker.config import settings
-from universal_rag_chunker.models.schemes import FileType, SourceDocument
-from universal_rag_chunker.utils.ocr import OpenAIVisionClient, PaddleOCRClient
+from config import settings
+from models.schemes import FileType, SourceDocument
+from utils.ocr import OpenAIVisionClient, PaddleOCRClient
 
 logger = logging.getLogger(__name__)
 

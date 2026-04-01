@@ -5,7 +5,7 @@ from typing import Any
 import requests
 from pydantic import BaseModel, Field, PrivateAttr
 
-from universal_rag_chunker.config import settings
+from config import settings
 
 
 class PaddleOCRClient(BaseModel):
