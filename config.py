@@ -12,6 +12,8 @@ ENV_FILE = BASE_DIR / ".env"
 class Settings(BaseSettings):
     ocr_provider: Literal["paddle", "openai"] = "paddle"
     ocr_timeout_seconds: int = Field(default=60, ge=1)
+    embedding_provider: Literal["ollama", "openai"] = "ollama"
+    embedding_timeout_seconds: int = Field(default=60, ge=1)
 
     # Paddle
     paddle_ocr_api_key: Optional[str] = None
@@ -21,6 +23,15 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     openai_api_base: Optional[str] = None
     openai_api_model: Optional[str] = None
+
+    # OpenAI Embedding
+    embedding_openai_api_key: Optional[str] = None
+    embedding_openai_api_base: Optional[str] = "https://api.openai.com/v1"
+    embedding_openai_model: Optional[str] = None
+
+    # Ollama Embedding
+    embedding_ollama_base_url: Optional[str] = "http://localhost:11434"
+    embedding_ollama_model: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
