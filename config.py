@@ -14,6 +14,18 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = Field(default=60, ge=1)
     embedding_provider: Literal["ollama", "openai"] = "ollama"
     embedding_timeout_seconds: int = Field(default=60, ge=1)
+    postgres_host: str = "localhost"
+    postgres_port: int = Field(default=5432, ge=1)
+    postgres_db: str = "postgres"
+    postgres_user: str = "postgres"
+    postgres_password: Optional[str] = None
+    postgres_schema: str = "public"
+    postgres_sslmode: str = "prefer"
+    postgres_timeout_seconds: int = Field(default=30, ge=1)
+    milvus_uri: str = "http://localhost:19530"
+    milvus_token: Optional[str] = None
+    milvus_db_name: Optional[str] = None
+    milvus_timeout_seconds: int = Field(default=30, ge=1)
 
     # Paddle
     paddle_ocr_api_key: Optional[str] = None

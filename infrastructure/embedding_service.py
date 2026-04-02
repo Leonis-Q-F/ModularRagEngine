@@ -1,38 +1,35 @@
 from __future__ import annotations
 
-import hashlib
-import math
-import re
+try:
+    from ..config import settings
+except ImportError:  # pragma: no cover - 兼容直接从仓库根目录运行
+    from config import settings
+
+from ..utils.embeddings import build_embedding_model
 
 
 class EmbeddingService:
-    """默认的本地确定性 embedding 服务，便于无外部依赖运行。"""
+    """基于当前配置构建真实 embedding provider。"""
 
-    provider_name = "builtin"
-    model_name = "hash-embedding-v1"
-    dimension = 64
+    def __init__(self) -> None:
+        self._model = build_embedding_model()
+        self.provider_name = settings.embedding_provider
+        self.model_name = self._resolve_model_name()
+        self.dimension = len(self.embed_query("dimension probe"))
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        return [self.embed_query(text) for text in texts]
+        return self._model.embed_documents(texts)
 
     def embed_query(self, text: str) -> list[float]:
-        tokens = self._tokenize(text)
-        if not tokens:
-            return [0.0] * self.dimension
+        return self._model.embed_query(text)
 
-        vector = [0.0] * self.dimension
-        for token in tokens:
-            digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-            index = int(digest, 16) % self.dimension
-            vector[index] += 1.0
+    def _resolve_model_name(self) -> str:
+        model_name = getattr(self._model, "model", None)
+        if isinstance(model_name, str) and model_name.strip():
+            return model_name.strip()
 
-        norm = math.sqrt(sum(value * value for value in vector))
-        if norm == 0:
-            return vector
-        return [value / norm for value in vector]
+        internal_model = getattr(self._model, "_model", None)
+        if isinstance(internal_model, str) and internal_model.strip():
+            return internal_model.strip()
 
-    def _tokenize(self, text: str) -> list[str]:
-        text = text.strip()
-        if not text:
-            return []
-        return re.findall(r"[\u4e00-\u9fff]|[A-Za-z0-9_]+", text)
+        return type(self._model).__name__
