@@ -5,7 +5,10 @@ from typing import Any
 import requests
 from pydantic import BaseModel, Field, PrivateAttr
 
-from config import settings
+try:
+    from ..config import settings
+except ImportError:  # pragma: no cover - 兼容直接从仓库根目录运行
+    from config import settings
 
 
 class PaddleOCRClient(BaseModel):

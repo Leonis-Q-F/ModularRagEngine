@@ -1,11 +1,26 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
-from langchain_core.embeddings import Embeddings
-from langchain_openai import OpenAIEmbeddings
+try:
+    from ..config import Settings, settings
+except ImportError:  # pragma: no cover - 兼容直接从仓库根目录运行
+    from config import Settings, settings
 
-from config import Settings, settings
+try:
+    from langchain_core.embeddings import Embeddings
+except ImportError:  # pragma: no cover - 运行时按 provider 抛错
+    class Embeddings(Protocol):
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            ...
+
+        def embed_query(self, text: str) -> list[float]:
+            ...
+
+try:
+    from langchain_openai import OpenAIEmbeddings
+except ImportError:  # pragma: no cover - 按需抛错
+    OpenAIEmbeddings = None
 
 try:
     from ollama import Client as OllamaClient
@@ -71,6 +86,8 @@ def build_embedding_model_from_settings(app_settings: Settings) -> Embeddings:
 
 def _build_openai_embedding_model(app_settings: Settings) -> Embeddings:
     """构建 OpenAI embedding 模型。"""
+    if OpenAIEmbeddings is None:
+        raise ImportError("缺少 `langchain_openai` 依赖，请先安装。")
     api_key = _require_setting(app_settings.embedding_openai_api_key, "EMBEDDING_OPENAI_API_KEY")
     model = _require_setting(app_settings.embedding_openai_model, "EMBEDDING_OPENAI_MODEL")
 
