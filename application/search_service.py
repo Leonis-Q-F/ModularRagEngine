@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import Any
 
 from ..domain.exceptions import ActiveIndexNotFoundError
 from ..domain.ports import DocumentStorePort, EmbeddingPort, RerankerPort, VectorStorePort
 from .context_assembler import ContextAssembler
 from .dto import ContextBlock, SearchHit, SearchRequest, SearchResult
+from .search_models import RankedEntry
 
 
 class SearchService:
@@ -20,6 +20,7 @@ class SearchService:
         reranker: RerankerPort | None,
         context_assembler: ContextAssembler,
     ) -> None:
+        """注入检索编排所需的依赖。"""
         self._document_store = document_store
         self._vector_store = vector_store
         self._embedding_service = embedding_service
@@ -27,6 +28,7 @@ class SearchService:
         self._context_assembler = context_assembler
 
     def search(self, request: SearchRequest) -> SearchResult:
+        """执行召回、重排、父块回填和上下文组装。"""
         namespace = self._document_store.get_namespace(
             namespace_id=request.namespace_id,
             namespace_key=request.namespace_key,
@@ -36,12 +38,13 @@ class SearchService:
             raise ActiveIndexNotFoundError("当前 namespace 没有可用的激活索引。")
 
         query_vector = self._embedding_service.embed_query(request.query)
+        candidate_top_k = self._resolve_candidate_top_k(request)
         vector_hits = self._vector_store.hybrid_search(
             index=active_index,
             query_text=request.query,
             query_vector=query_vector,
-            top_k=request.top_k_recall,
-            filters=request.filters,
+            top_k=candidate_top_k,
+            filters=request.normalized_filters(),
         )
         entries = self._document_store.get_index_entries([hit.entry_id for hit in vector_hits])
         entry_by_id = {entry.entry_id: entry for entry in entries}
@@ -65,12 +68,12 @@ class SearchService:
             index_version=active_index.index_version,
             hits=[
                 SearchHit(
-                    entry_id=item["entry"].entry_id,
-                    block_id=item["entry"].block_id,
-                    parent_id=item["entry"].parent_id,
-                    recall_score=item["recall_score"],
-                    rerank_score=item["score"],
-                    retrieval_text=item["entry"].retrieval_text,
+                    entry_id=item.entry.entry_id,
+                    block_id=item.entry.block_id,
+                    parent_id=item.entry.parent_id,
+                    recall_score=item.recall_score,
+                    rerank_score=item.score,
+                    retrieval_text=item.entry.retrieval_text,
                 )
                 for item in reranked
             ],
@@ -78,7 +81,14 @@ class SearchService:
             llm_context=self._context_assembler.build(contexts),
         )
 
-    def _rerank(self, query: str, entries: list, top_k: int, recall_scores: dict) -> list[dict[str, Any]]:
+    def _resolve_candidate_top_k(self, request: SearchRequest) -> int:
+        """为召回阶段选择比最终 rerank 更大的候选池。"""
+        if request.top_k_candidates is not None:
+            return max(request.top_k_candidates, request.top_k_recall, request.top_k_rerank)
+        return max(request.top_k_recall, request.top_k_rerank * 4, 20)
+
+    def _rerank(self, query: str, entries: list, top_k: int, recall_scores: dict) -> list[RankedEntry]:
+        """对召回条目进行重排并截断到目标数量。"""
         if not entries:
             return []
 
@@ -88,24 +98,25 @@ class SearchService:
             ranked_pairs = self._reranker.rerank(query=query, entries=entries, top_k=top_k)
 
         ranked = [
-            {
-                "entry": entry,
-                "score": score,
-                "recall_score": recall_scores.get(entry.entry_id, 0.0),
-            }
+            RankedEntry(
+                entry=entry,
+                score=score,
+                recall_score=recall_scores.get(entry.entry_id, 0.0),
+            )
             for entry, score in ranked_pairs
         ]
-        ranked.sort(key=lambda item: item["score"], reverse=True)
+        ranked.sort(key=lambda item: item.score, reverse=True)
         return ranked[:top_k]
 
-    def _fill_parent_contexts(self, reranked: list[dict[str, Any]], top_k_context: int, parent_window: int) -> list[ContextBlock]:
+    def _fill_parent_contexts(self, reranked: list[RankedEntry], top_k_context: int, parent_window: int) -> list[ContextBlock]:
+        """根据重排结果回填父块上下文窗口。"""
         parent_scores: OrderedDict = OrderedDict()
         for item in reranked:
-            parent_id = item["entry"].parent_id
+            parent_id = item.entry.parent_id
             if parent_id not in parent_scores:
-                parent_scores[parent_id] = item["score"]
+                parent_scores[parent_id] = item.score
             else:
-                parent_scores[parent_id] = max(parent_scores[parent_id], item["score"])
+                parent_scores[parent_id] = max(parent_scores[parent_id], item.score)
 
         seed_parent_ids = list(parent_scores.keys())[:top_k_context]
         ordered_parents: OrderedDict = OrderedDict()

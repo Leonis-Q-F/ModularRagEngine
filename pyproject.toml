@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ModularRagEngine"
+version = "0.1.0"
+description = "面向 Python 后端系统的分层 RAG 引擎"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "ModularRagEngine Maintainers" }]
+dependencies = [
+  "pydantic>=2.8",
+  "pydantic-settings>=2.4",
+  "psycopg[binary]>=3.2",
+  "pymilvus>=2.4",
+  "requests>=2.32",
+  "tiktoken>=0.7",
+  "langchain-core>=0.3",
+  "langchain-experimental>=0.3",
+  "langchain-text-splitters>=0.3",
+]
+
+[project.scripts]
+rag-retrieval-eval = "ModularRagEngine.retrieval_eval:main"
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.3",
+  "ruff>=0.6",
+]
+extras = [
+  "docling",
+  "langchain-openai",
+  "markitdown",
+  "ollama",
+  "openai",
+  "pandas",
+  "sentence-transformers",
+]
+
+[tool.setuptools]
+include-package-data = true
+packages = [
+  "ModularRagEngine",
+  "ModularRagEngine.api",
+  "ModularRagEngine.application",
+  "ModularRagEngine.domain",
+  "ModularRagEngine.infrastructure",
+  "ModularRagEngine.infrastructure.persistence",
+  "ModularRagEngine.utils",
+]
+
+[tool.setuptools.package-dir]
+"ModularRagEngine" = "."
+"ModularRagEngine.api" = "api"
+"ModularRagEngine.application" = "application"
+"ModularRagEngine.domain" = "domain"
+"ModularRagEngine.infrastructure" = "infrastructure"
+"ModularRagEngine.infrastructure.persistence" = "infrastructure/persistence"
+"ModularRagEngine.utils" = "utils"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true

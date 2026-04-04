@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+from uuid import UUID
+
+from ..domain.constants import DEFAULT_CHUNK_VERSION
 from ..domain.entities import SourceDocument
 from ..domain.ports import ChunkerPort, DocumentStorePort, LoaderPort
 from ..domain.value_objects import ParsedDocument, sha256_text
 from .dto import IndexedDocument, IngestDocumentsRequest, IngestFilesRequest, IngestResult, InputDocument
 from .index_service import IndexService
+from .namespace_resolver import NamespaceResolver
 
 
 class IngestService:
-    """编排文档入库、切分和增量索引同步。"""
+    """编排文档入库、切分和索引同步。"""
 
     def __init__(
         self,
@@ -16,45 +20,45 @@ class IngestService:
         loader: LoaderPort,
         chunker: ChunkerPort,
         index_service: IndexService,
-        chunk_version: str = "chunk-v1",
+        namespace_resolver: NamespaceResolver | None = None,
+        chunk_version: str = DEFAULT_CHUNK_VERSION,
     ) -> None:
+        """注入入库流程所需的存储、加载和索引依赖。"""
         self._document_store = document_store
         self._loader = loader
         self._chunker = chunker
         self._index_service = index_service
+        self._namespace_resolver = namespace_resolver or NamespaceResolver(document_store)
         self._chunk_version = chunk_version
 
     def ingest_files(self, request: IngestFilesRequest) -> IngestResult:
-        namespace = self._document_store.ensure_namespace(
-            namespace_key=request.namespace_key or str(request.namespace_id),
-        )
+        """把文件路径输入转换为标准入库与可检索索引流程。"""
+        namespace = self._namespace_resolver.resolve_for_ingest(request.namespace_reference())
         parsed_documents = self._loader.load(request.file_paths, use_ocr=request.use_ocr)
         return self._ingest_parsed_documents(
             namespace_id=namespace.namespace_id,
             namespace_key=namespace.namespace_key,
             parsed_documents=parsed_documents,
-            index_after_ingest=request.index_after_ingest,
         )
 
     def ingest_documents(self, request: IngestDocumentsRequest) -> IngestResult:
-        namespace = self._document_store.ensure_namespace(
-            namespace_key=request.namespace_key or str(request.namespace_id),
-        )
+        """接收宿主传入的解析结果并执行统一入库与索引。"""
+        namespace = self._namespace_resolver.resolve_for_ingest(request.namespace_reference())
         parsed_documents = [self._to_parsed_document(document) for document in request.documents]
         return self._ingest_parsed_documents(
             namespace_id=namespace.namespace_id,
             namespace_key=namespace.namespace_key,
             parsed_documents=parsed_documents,
-            index_after_ingest=request.index_after_ingest,
         )
 
     def _ingest_parsed_documents(
         self,
-        namespace_id,
+        namespace_id: UUID,
         namespace_key: str,
         parsed_documents: list[ParsedDocument],
-        index_after_ingest: bool,
     ) -> IngestResult:
+        """把解析后的文档写入存储、切分并同步到可检索索引。"""
+        # 转换为内部文档aqs1   swa
         source_documents = [
             SourceDocument(
                 namespace_id=namespace_id,
@@ -72,17 +76,17 @@ class IngestService:
             for document in parsed_documents
         ]
 
+        # 写入存储
         stored_documents = self._document_store.upsert_source_documents(source_documents)
         for document in stored_documents:
             bundle = self._chunker.split_document(doc=document, chunk_version=self._chunk_version)
             self._document_store.replace_document_chunks(bundle)
 
-        active_index = None
-        if index_after_ingest:
-            active_index = self._index_service.sync_documents_to_active_index(
-                namespace_id=namespace_id,
-                doc_ids=[document.doc_id for document in stored_documents],
-            )
+        # 同步索引
+        active_index = self._index_service.sync_documents_to_active_index(
+            namespace_id=namespace_id,
+            doc_ids=[document.doc_id for document in stored_documents],
+        )
 
         return IngestResult(
             namespace_id=namespace_id,
@@ -97,11 +101,12 @@ class IngestService:
                 for document in stored_documents
             ],
             chunk_version=self._chunk_version,
-            index_id=active_index.index_id if active_index else None,
-            index_version=active_index.index_version if active_index else None,
+            index_id=active_index.index_id,
+            index_version=active_index.index_version,
         )
 
     def _to_parsed_document(self, document: InputDocument) -> ParsedDocument:
+        """把应用层输入文档转换为内部 ParsedDocument。"""
         return ParsedDocument(
             external_doc_id=document.external_doc_id,
             file_name=document.file_name,

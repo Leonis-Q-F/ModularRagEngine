@@ -3,7 +3,7 @@ from .document_store import DocumentStore
 from .embedding_service import EmbeddingService
 from .markdown_chunker import MarkdownChunker
 from .milvus_store import MilvusStore
-from .reranker import SimpleReranker
+from .reranker import SemanticReranker
 
 __all__ = [
     "DocumentLoader",
@@ -11,5 +11,5 @@ __all__ = [
     "EmbeddingService",
     "MarkdownChunker",
     "MilvusStore",
-    "SimpleReranker",
+    "SemanticReranker",
 ]

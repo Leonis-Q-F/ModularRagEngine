@@ -6,8 +6,11 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from .constants import DEFAULT_SPARSE_PROVIDER, IndexStatus, RetrievalTextPolicy
+
 
 def utc_now() -> datetime:
+    """生成统一的 UTC 当前时间。"""
     return datetime.now(timezone.utc)
 
 
@@ -94,16 +97,14 @@ class RetrievalIndex(BaseModel):
     chunk_version: str
     index_name: str
     retrieval_strategy: str = "hybrid"
-    retrieval_text_policy: str = "header_path_plus_content"
+    retrieval_text_policy: str = RetrievalTextPolicy.HEADER_PATH_PLUS_CONTENT.value
     embedding_provider: str
     embedding_model: str
     embedding_dim: int
-    sparse_provider: str = "simple_lexical"
-    reranker_provider: str | None = None
-    reranker_model: str | None = None
+    sparse_provider: str = DEFAULT_SPARSE_PROVIDER
     zh_collection_name: str | None = None
     en_collection_name: str | None = None
-    status: str = "building"
+    status: str = IndexStatus.BUILDING.value
     is_active: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utc_now)

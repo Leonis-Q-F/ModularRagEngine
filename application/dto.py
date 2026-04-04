@@ -3,8 +3,18 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ..domain.constants import RetrievalTextPolicy
+from ..domain.value_objects import NamespaceReference, SearchFilters
+
+
+def _validate_positive_text(value: str, field_name: str) -> str:
+    """统一校验必须非空的文本字段。"""
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} 不能为空。")
+    return normalized
 
 class NamespaceScopedRequest(BaseModel):
     namespace_id: UUID | None = None
@@ -12,9 +22,14 @@ class NamespaceScopedRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_namespace_scope(self) -> "NamespaceScopedRequest":
+        """确保请求至少带有一种 namespace 标识。"""
         if self.namespace_id is None and not self.namespace_key:
             raise ValueError("必须提供 namespace_id 或 namespace_key。")
         return self
+
+    def namespace_reference(self) -> NamespaceReference:
+        """导出统一的 namespace 引用对象。"""
+        return NamespaceReference(namespace_id=self.namespace_id, namespace_key=self.namespace_key)
 
 
 class InputDocument(BaseModel):
@@ -27,30 +42,67 @@ class InputDocument(BaseModel):
     parser_name: str = "host"
     parser_version: str | None = None
 
+    @field_validator("file_name", "file_type", "parsed_md_content")
+    @classmethod
+    def validate_required_text(cls, value: str, info) -> str:
+        """收紧文档输入的基础文本字段。"""
+        return _validate_positive_text(value, info.field_name)
+
 
 class IngestFilesRequest(NamespaceScopedRequest):
-    file_paths: list[str]
+    file_paths: list[str] = Field(min_length=1)
     use_ocr: bool = False
-    document_metadata: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    index_after_ingest: bool = True
+
+    @field_validator("file_paths")
+    @classmethod
+    def validate_file_paths(cls, value: list[str]) -> list[str]:
+        """确保文件路径列表中不存在空路径。"""
+        return [_validate_positive_text(item, "file_paths") for item in value]
 
 
 class IngestDocumentsRequest(NamespaceScopedRequest):
-    documents: list[InputDocument]
-    index_after_ingest: bool = True
+    documents: list[InputDocument] = Field(min_length=1)
 
 
 class RebuildIndexRequest(NamespaceScopedRequest):
-    retrieval_text_policy: str = "header_path_plus_content"
+    retrieval_text_policy: str = RetrievalTextPolicy.HEADER_PATH_PLUS_CONTENT.value
+
+    @field_validator("retrieval_text_policy")
+    @classmethod
+    def validate_retrieval_text_policy(cls, value: str) -> str:
+        """确保索引重建策略在受支持列表内。"""
+        normalized = _validate_positive_text(value, "retrieval_text_policy")
+        return RetrievalTextPolicy(normalized).value
+
+
+class DeleteIndexRequest(BaseModel):
+    index_id: UUID
 
 
 class SearchRequest(NamespaceScopedRequest):
     query: str
-    top_k_recall: int = 8
-    top_k_rerank: int = 5
-    top_k_context: int = 3
-    parent_window: int = 0
+    top_k_recall: int = Field(default=8, ge=1)
+    top_k_rerank: int = Field(default=5, ge=1)
+    top_k_candidates: int | None = Field(default=None, ge=1)
+    top_k_context: int = Field(default=3, ge=1)
+    parent_window: int = Field(default=0, ge=0)
     filters: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, value: str) -> str:
+        """确保检索查询非空。"""
+        return _validate_positive_text(value, "query")
+
+    @field_validator("filters")
+    @classmethod
+    def validate_filters(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """在 DTO 层提前校验过滤条件结构。"""
+        return SearchFilters.from_raw(value).to_legacy_payload()
+
+    def normalized_filters(self) -> SearchFilters:
+        """返回经过标准化的检索过滤对象。"""
+        return SearchFilters.from_raw(self.filters)
 
 
 class IndexedDocument(BaseModel):
@@ -65,8 +117,8 @@ class IngestResult(BaseModel):
     doc_ids: list[UUID]
     documents: list[IndexedDocument]
     chunk_version: str
-    index_id: UUID | None = None
-    index_version: str | None = None
+    index_id: UUID
+    index_version: str
 
 
 class RebuildIndexResult(BaseModel):
@@ -75,6 +127,13 @@ class RebuildIndexResult(BaseModel):
     index_id: UUID
     index_version: str
     status: str
+
+
+class DeleteIndexResult(BaseModel):
+    index_id: UUID
+    namespace_id: UUID
+    index_version: str
+    deleted: bool
 
 
 class SearchHit(BaseModel):

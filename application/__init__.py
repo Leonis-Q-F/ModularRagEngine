@@ -1,5 +1,7 @@
 from .dto import (
     ContextBlock,
+    DeleteIndexRequest,
+    DeleteIndexResult,
     IndexedDocument,
     IngestDocumentsRequest,
     IngestFilesRequest,
@@ -14,6 +16,8 @@ from .dto import (
 
 __all__ = [
     "ContextBlock",
+    "DeleteIndexRequest",
+    "DeleteIndexResult",
     "IndexedDocument",
     "IngestDocumentsRequest",
     "IngestFilesRequest",

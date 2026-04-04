@@ -7,6 +7,7 @@ class ContextAssembler:
     """把父块结果组装为稳定的 LLM 上下文文本。"""
 
     def build(self, contexts: list[ContextBlock]) -> str:
+        """把上下文块拼接为稳定的 LLM 输入文本。"""
         parts: list[str] = []
         for context in contexts:
             parts.append(

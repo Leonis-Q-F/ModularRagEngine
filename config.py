@@ -14,6 +14,17 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = Field(default=60, ge=1)
     embedding_provider: Literal["ollama", "openai"] = "ollama"
     embedding_timeout_seconds: int = Field(default=60, ge=1)
+    embedding_batch_size: int = Field(default=32, ge=1)
+    reranker_model_name: str = "BAAI/bge-reranker-v2-m3"
+    reranker_batch_size: int = Field(default=16, ge=1)
+    reranker_max_length: int = Field(default=1024, ge=32)
+    reranker_device: Optional[str] = None
+    milvus_ranker_strategy: Literal["weighted", "rrf"] = "weighted"
+    milvus_dense_weight: float = Field(default=0.7, ge=0.0, le=1.0)
+    milvus_sparse_weight: float = Field(default=0.3, ge=0.0, le=1.0)
+    milvus_rrf_k: int = Field(default=60, ge=1)
+    milvus_collect_score_breakdown: bool = False
+    milvus_sparse_inverted_index_algo: Literal["DAAT_MAXSCORE", "DAAT_WAND", "TAAT_NAIVE"] = "DAAT_MAXSCORE"
     postgres_host: str = "localhost"
     postgres_port: int = Field(default=5432, ge=1)
     postgres_db: str = "postgres"

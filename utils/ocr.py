@@ -5,10 +5,7 @@ from typing import Any
 import requests
 from pydantic import BaseModel, Field, PrivateAttr
 
-try:
-    from ..config import settings
-except ImportError:  # pragma: no cover - 兼容直接从仓库根目录运行
-    from config import settings
+from ..config import settings
 
 
 class PaddleOCRClient(BaseModel):
@@ -29,6 +26,7 @@ class PaddleOCRClient(BaseModel):
     )
 
     def model_post_init(self, __context: Any) -> None:
+        """校验 Paddle OCR 客户端配置是否完整。"""
         if not self.api_token:
             raise ValueError("缺少 Paddle OCR API Key 配置")
         if not self.api_url:
@@ -97,6 +95,7 @@ class OpenAIVisionClient(BaseModel):
     _client: Any = PrivateAttr(default=None)
 
     def model_post_init(self, __context: Any) -> None:
+        """校验 OpenAI OCR 配置并初始化 SDK 客户端。"""
         if not self.api_key:
             raise ValueError("缺少 OpenAI API Key 配置")
         if not self.api_model:
@@ -113,6 +112,7 @@ class OpenAIVisionClient(BaseModel):
         self._client = OpenAI(**client_kwargs)
 
     def run(self, file_path: str) -> str:
+        """调用 OpenAI 视觉模型把图片转换为 Markdown。"""
         try:
             with open(file_path, "rb") as image_file:
                 base64_image = base64.b64encode(image_file.read()).decode("utf-8")
