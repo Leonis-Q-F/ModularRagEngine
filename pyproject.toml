@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-rag-retrieval-eval = "ModularRagEngine.retrieval_eval:main"
+rag-retrieval-eval = "ModularRagEngine.utils.retrieval_eval:main"
 
 [project.optional-dependencies]
 dev = [
