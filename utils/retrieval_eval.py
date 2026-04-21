@@ -21,14 +21,14 @@ from ModularRagEngine.infrastructure.milvus_store import MilvusStore
 DEFAULT_RUNTIME_GUIDE_CASES: list[dict[str, Any]] = [
     {"query": "DocumentStore 的作用是什么", "relevant_markers": ["`infrastructure/document_store.py`"]},
     {"query": "MilvusStore 负责什么", "relevant_markers": ["`infrastructure/milvus_store.py`"]},
-    {"query": "SearchService 做什么", "relevant_markers": ["`application/search_service.py`"]},
+    {"query": "SearchUseCase 做什么", "relevant_markers": ["`application/use_cases/search.py`"]},
     {"query": "ingest_files 流程是什么", "relevant_markers": ["#### `ingest_files`"]},
     {"query": "rebuild_index 流程是什么", "relevant_markers": ["### 2.3 索引重建流程"]},
     {"query": "RAGEngine 初始化会创建哪些组件", "relevant_markers": ["### 2.1 初始化流程"]},
     {"query": "NamespaceScopedRequest 校验什么", "relevant_markers": ["`application/dto.py`"]},
     {"query": "MarkdownChunker 做什么", "relevant_markers": ["`infrastructure/markdown_chunker.py`"]},
     {"query": "当前默认运行链路重点是什么", "relevant_markers": ["## 5. 当前默认运行链路的重点"]},
-    {"query": "ContextAssembler 做什么", "relevant_markers": ["`application/context_assembler.py`"]},
+    {"query": "ContextPresenter 做什么", "relevant_markers": ["`api/presenters/context_presenter.py`"]},
 ]
 
 
@@ -232,7 +232,7 @@ def aggregate_metrics(case_results: list[dict[str, Any]], ks: list[int], top_con
     return summary
 
 
-def build_cleanup_index_service() -> IndexingService:
+def build_cleanup_indexing_service() -> IndexingService:
     """构造只用于清理路径的索引服务。"""
     return IndexingService(
         document_store=DocumentStore(),
@@ -245,13 +245,13 @@ def cleanup(
     namespace_id,
     index_id,
     keep_artifacts: bool,
-    index_service: IndexingService | None = None,
+    indexing_service: IndexingService | None = None,
 ) -> dict[str, Any]:
     """清理评测产生的 PGSQL 和 Milvus 数据。"""
     if keep_artifacts:
         return {"namespace_deleted": False, "dropped_collections": []}
 
-    service = index_service or build_cleanup_index_service()
+    service = indexing_service or build_cleanup_indexing_service()
     deleted_index = service.delete_index(index_id=index_id, allow_active=True)
     dropped_collections = [
         name

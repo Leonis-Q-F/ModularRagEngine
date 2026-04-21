@@ -31,15 +31,23 @@
 
 ## 分层结构
 
-当前仓库已经收敛为更明确的经典分层结构，同时保留旧导入路径兼容层：
+当前仓库已经收敛为更明确的经典分层结构：
 
 - `api`：对外入口与 presenter，只负责输入输出适配
 - `application/contracts.py`：跨用例共享的数据契约
 - `application/ports`：应用层依赖的外部能力接口
 - `application/services`：可被多个用例复用的编排服务
 - `application/use_cases`：入库、检索等核心用例
-- `domain`：实体、常量与异常
+- `domain`：实体、常量与异常，不再承载 ports / value objects
 - `infrastructure`：PostgreSQL、Milvus、OCR、Embedding 等适配器
+
+仓库已经移除了旧文件名兼容层，内部统一使用新的目录与命名：
+
+- `application/contracts.py`
+- `application/ports/`
+- `application/services/`
+- `application/use_cases/`
+- `api/presenters/`
 
 依赖方向保持单向：
 

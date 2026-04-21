@@ -34,7 +34,7 @@ class RAGEngine:
         chunker: ChunkerPort | None = None,
         embedding_service: EmbeddingPort | None = None,
         reranker: RerankerPort | None = None,
-        context_assembler: ContextPresenterPort | None = None,
+        context_presenter: ContextPresenterPort | None = None,
     ) -> None:
         """通过独立装配模块构造完整检索链路。"""
         components = build_engine_components(
@@ -44,7 +44,7 @@ class RAGEngine:
             chunker=chunker,
             embedding_service=embedding_service,
             reranker=reranker,
-            context_assembler=context_assembler,
+            context_presenter=context_presenter,
         )
         self.document_store = components.document_store
         self.vector_store = components.vector_store
@@ -52,16 +52,11 @@ class RAGEngine:
         self.chunker = components.chunker
         self.embedding_service = components.embedding_service
         self.reranker = components.reranker
-        self.context_presenter = components.context_assembler
-        self.context_assembler = self.context_presenter
-        self.namespace_service = components.namespace_resolver
-        self.namespace_resolver = self.namespace_service
-        self.indexing_service = components.index_service
-        self.index_service = self.indexing_service
-        self.ingest_use_case = components.ingest_service
-        self.ingest_service = self.ingest_use_case
-        self.search_use_case = components.search_service
-        self.search_service = self.search_use_case
+        self.context_presenter = components.context_presenter
+        self.namespace_service = components.namespace_service
+        self.indexing_service = components.indexing_service
+        self.ingest_use_case = components.ingest_use_case
+        self.search_use_case = components.search_use_case
 
     def ingest_files(self, request: IngestFilesRequest) -> IngestResult:
         """加载文件、切分文档并按需同步到索引。"""

@@ -34,11 +34,11 @@ class EngineComponents:
     chunker: ChunkerPort
     embedding_service: EmbeddingPort
     reranker: RerankerPort | None
-    context_assembler: ContextPresenterPort
-    namespace_resolver: NamespaceResolutionService
-    index_service: IndexingService
-    ingest_service: IngestUseCase
-    search_service: SearchUseCase
+    context_presenter: ContextPresenterPort
+    namespace_service: NamespaceResolutionService
+    indexing_service: IndexingService
+    ingest_use_case: IngestUseCase
+    search_use_case: SearchUseCase
 
 
 def build_engine_components(
@@ -48,7 +48,7 @@ def build_engine_components(
     chunker: ChunkerPort | None = None,
     embedding_service: EmbeddingPort | None = None,
     reranker: RerankerPort | None = None,
-    context_assembler: ContextPresenterPort | None = None,
+    context_presenter: ContextPresenterPort | None = None,
 ) -> EngineComponents:
     """构造默认运行链路，并允许调用方覆盖底层端口实现。"""
     resolved_document_store = document_store or DocumentStore()
@@ -57,26 +57,26 @@ def build_engine_components(
     resolved_chunker = chunker or MarkdownChunker()
     resolved_embedding_service = embedding_service or EmbeddingService()
     resolved_reranker = reranker or SemanticReranker()
-    resolved_context_assembler = context_assembler or ContextPresenter()
-    namespace_resolver = NamespaceResolutionService(resolved_document_store)
-    index_service = IndexingService(
+    resolved_context_presenter = context_presenter or ContextPresenter()
+    namespace_service = NamespaceResolutionService(resolved_document_store)
+    indexing_service = IndexingService(
         document_store=resolved_document_store,
         vector_store=resolved_vector_store,
         embedding_service=resolved_embedding_service,
     )
-    ingest_service = IngestUseCase(
+    ingest_use_case = IngestUseCase(
         document_store=resolved_document_store,
         loader=resolved_loader,
         chunker=resolved_chunker,
-        index_service=index_service,
-        namespace_resolver=namespace_resolver,
+        indexing_service=indexing_service,
+        namespace_service=namespace_service,
     )
-    search_service = SearchUseCase(
+    search_use_case = SearchUseCase(
         document_store=resolved_document_store,
         vector_store=resolved_vector_store,
         embedding_service=resolved_embedding_service,
         reranker=resolved_reranker,
-        context_presenter=resolved_context_assembler,
+        context_presenter=resolved_context_presenter,
     )
     return EngineComponents(
         document_store=resolved_document_store,
@@ -85,9 +85,9 @@ def build_engine_components(
         chunker=resolved_chunker,
         embedding_service=resolved_embedding_service,
         reranker=resolved_reranker,
-        context_assembler=resolved_context_assembler,
-        namespace_resolver=namespace_resolver,
-        index_service=index_service,
-        ingest_service=ingest_service,
-        search_service=search_service,
+        context_presenter=resolved_context_presenter,
+        namespace_service=namespace_service,
+        indexing_service=indexing_service,
+        ingest_use_case=ingest_use_case,
+        search_use_case=search_use_case,
     )

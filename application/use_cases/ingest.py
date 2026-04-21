@@ -19,21 +19,21 @@ class IngestUseCase:
         document_store: DocumentStorePort,
         loader: LoaderPort,
         chunker: ChunkerPort,
-        index_service: IndexingService,
-        namespace_resolver: NamespaceResolutionService | None = None,
+        indexing_service: IndexingService,
+        namespace_service: NamespaceResolutionService | None = None,
         chunk_version: str = DEFAULT_CHUNK_VERSION,
     ) -> None:
         """注入入库流程所需的存储、加载和索引依赖。"""
         self._document_store = document_store
         self._loader = loader
         self._chunker = chunker
-        self._index_service = index_service
-        self._namespace_resolver = namespace_resolver or NamespaceResolutionService(document_store)
+        self._indexing_service = indexing_service
+        self._namespace_service = namespace_service or NamespaceResolutionService(document_store)
         self._chunk_version = chunk_version
 
     def ingest_files(self, request: IngestFilesRequest) -> IngestResult:
         """把文件路径输入转换为标准入库与可检索索引流程。"""
-        namespace = self._namespace_resolver.resolve_for_ingest(request.namespace_reference())
+        namespace = self._namespace_service.resolve_for_ingest(request.namespace_reference())
         parsed_documents = self._loader.load(request.file_paths, use_ocr=request.use_ocr)
         return self._ingest_parsed_documents(
             namespace_id=namespace.namespace_id,
@@ -43,7 +43,7 @@ class IngestUseCase:
 
     def ingest_documents(self, request: IngestDocumentsRequest) -> IngestResult:
         """接收宿主传入的解析结果并执行统一入库与索引。"""
-        namespace = self._namespace_resolver.resolve_for_ingest(request.namespace_reference())
+        namespace = self._namespace_service.resolve_for_ingest(request.namespace_reference())
         parsed_documents = [
             ParsedDocument(
                 external_doc_id=document.external_doc_id,
@@ -92,7 +92,7 @@ class IngestUseCase:
             bundle = self._chunker.split_document(doc=document, chunk_version=self._chunk_version)
             self._document_store.replace_document_chunks(bundle)
 
-        active_index = self._index_service.sync_documents_to_active_index(
+        active_index = self._indexing_service.sync_documents_to_active_index(
             namespace_id=namespace_id,
             doc_ids=[document.doc_id for document in stored_documents],
         )
