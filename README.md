@@ -29,6 +29,24 @@
 - 可控过滤：检索过滤条件在 DTO 层标准化，避免魔法字典四处传递
 - 评测脚本：内置检索评测 CLI，可对真实文档执行 Recall / MRR / nDCG 统计
 
+## 分层结构
+
+当前仓库已经收敛为更明确的经典分层结构，同时保留旧导入路径兼容层：
+
+- `api`：对外入口与 presenter，只负责输入输出适配
+- `application/contracts.py`：跨用例共享的数据契约
+- `application/ports`：应用层依赖的外部能力接口
+- `application/services`：可被多个用例复用的编排服务
+- `application/use_cases`：入库、检索等核心用例
+- `domain`：实体、常量与异常
+- `infrastructure`：PostgreSQL、Milvus、OCR、Embedding 等适配器
+
+依赖方向保持单向：
+
+1. `api -> application`
+2. `application -> domain`
+3. `infrastructure -> application/contracts|application/ports|domain`
+
 ## 安装
 
 默认运行链路依赖若干可选包，推荐直接安装完整开发环境：

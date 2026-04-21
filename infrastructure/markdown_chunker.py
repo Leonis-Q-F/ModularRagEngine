@@ -10,8 +10,8 @@ from langchain_experimental.text_splitter import SemanticChunker
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field, PrivateAttr
 
+from ..application.contracts import ChunkBundle, sha256_text
 from ..domain.entities import ChildBlock, ParentChunk, SourceDocument
-from ..domain.value_objects import ChunkBundle, sha256_text
 from ..utils.embeddings import build_embedding_model
 
 Language = Literal["zh", "en"]

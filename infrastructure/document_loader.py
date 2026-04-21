@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ..application.contracts import ParsedDocument
 from ..config import settings
 from ..domain.exceptions import UnsupportedFileError
-from ..domain.value_objects import ParsedDocument
 from ..utils.ocr import OpenAIVisionClient, PaddleOCRClient
 
 

@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..domain.constants import RetrievalTextPolicy
-from ..domain.value_objects import NamespaceReference, SearchFilters
+from .contracts import NamespaceReference, SearchFilters
 
 
 def _validate_positive_text(value: str, field_name: str) -> str:

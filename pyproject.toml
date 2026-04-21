@@ -45,7 +45,11 @@ include-package-data = true
 packages = [
   "ModularRagEngine",
   "ModularRagEngine.api",
+  "ModularRagEngine.api.presenters",
   "ModularRagEngine.application",
+  "ModularRagEngine.application.ports",
+  "ModularRagEngine.application.services",
+  "ModularRagEngine.application.use_cases",
   "ModularRagEngine.domain",
   "ModularRagEngine.infrastructure",
   "ModularRagEngine.infrastructure.persistence",
@@ -55,7 +59,11 @@ packages = [
 [tool.setuptools.package-dir]
 "ModularRagEngine" = "."
 "ModularRagEngine.api" = "api"
+"ModularRagEngine.api.presenters" = "api/presenters"
 "ModularRagEngine.application" = "application"
+"ModularRagEngine.application.ports" = "application/ports"
+"ModularRagEngine.application.services" = "application/services"
+"ModularRagEngine.application.use_cases" = "application/use_cases"
 "ModularRagEngine.domain" = "domain"
 "ModularRagEngine.infrastructure" = "infrastructure"
 "ModularRagEngine.infrastructure.persistence" = "infrastructure/persistence"

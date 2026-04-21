@@ -1,6 +1,4 @@
-"""旧路径兼容层：端口已经迁移到 application.ports。"""
-
-from ..application.ports import (
+from .interfaces import (
     ChunkerPort,
     ContextPresenterPort,
     DocumentStorePort,

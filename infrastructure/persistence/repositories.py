@@ -5,9 +5,9 @@ from uuid import UUID
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
+from ...application.contracts import ChunkBundle
 from ...domain.entities import IndexEntry, Namespace, ParentChunk, RetrievalIndex, SourceDocument, utc_now
 from ...domain.exceptions import IndexNotFoundError, NamespaceNotFoundError
-from ...domain.value_objects import ChunkBundle
 from .connection import PostgresConnectionFactory
 from .mappers import (
     child_block_from_row,

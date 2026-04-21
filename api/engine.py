@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from ..application.context_assembler import ContextAssembler
 from ..application.dto import (
     DeleteIndexRequest,
     DeleteIndexResult,
@@ -12,8 +11,16 @@ from ..application.dto import (
     SearchRequest,
     SearchResult,
 )
+from ..application.ports import (
+    ChunkerPort,
+    ContextPresenterPort,
+    DocumentStorePort,
+    EmbeddingPort,
+    LoaderPort,
+    RerankerPort,
+    VectorStorePort,
+)
 from ..composition import build_engine_components
-from ..domain.ports import ChunkerPort, DocumentStorePort, EmbeddingPort, LoaderPort, RerankerPort, VectorStorePort
 
 
 class RAGEngine:
@@ -27,7 +34,7 @@ class RAGEngine:
         chunker: ChunkerPort | None = None,
         embedding_service: EmbeddingPort | None = None,
         reranker: RerankerPort | None = None,
-        context_assembler: ContextAssembler | None = None,
+        context_assembler: ContextPresenterPort | None = None,
     ) -> None:
         """通过独立装配模块构造完整检索链路。"""
         components = build_engine_components(
@@ -45,24 +52,29 @@ class RAGEngine:
         self.chunker = components.chunker
         self.embedding_service = components.embedding_service
         self.reranker = components.reranker
-        self.context_assembler = components.context_assembler
-        self.namespace_resolver = components.namespace_resolver
-        self.index_service = components.index_service
-        self.ingest_service = components.ingest_service
-        self.search_service = components.search_service
+        self.context_presenter = components.context_assembler
+        self.context_assembler = self.context_presenter
+        self.namespace_service = components.namespace_resolver
+        self.namespace_resolver = self.namespace_service
+        self.indexing_service = components.index_service
+        self.index_service = self.indexing_service
+        self.ingest_use_case = components.ingest_service
+        self.ingest_service = self.ingest_use_case
+        self.search_use_case = components.search_service
+        self.search_service = self.search_use_case
 
     def ingest_files(self, request: IngestFilesRequest) -> IngestResult:
         """加载文件、切分文档并按需同步到索引。"""
-        return self.ingest_service.ingest_files(request)
+        return self.ingest_use_case.ingest_files(request)
 
     def ingest_documents(self, request: IngestDocumentsRequest) -> IngestResult:
         """接收宿主传入的已解析文档并执行入库。"""
-        return self.ingest_service.ingest_documents(request)
+        return self.ingest_use_case.ingest_documents(request)
 
     def rebuild_index(self, request: RebuildIndexRequest) -> RebuildIndexResult:
         """为指定 namespace 重建并激活新的索引快照。"""
-        namespace = self.namespace_resolver.resolve_existing(request.namespace_reference())
-        index = self.index_service.rebuild_index(
+        namespace = self.namespace_service.resolve_existing(request.namespace_reference())
+        index = self.indexing_service.rebuild_index(
             namespace_id=namespace.namespace_id,
             namespace_key=namespace.namespace_key,
             retrieval_text_policy=request.retrieval_text_policy,
@@ -77,7 +89,7 @@ class RAGEngine:
 
     def delete_index(self, request: DeleteIndexRequest) -> DeleteIndexResult:
         """删除指定的非激活索引。"""
-        index = self.index_service.delete_index(request.index_id)
+        index = self.indexing_service.delete_index(request.index_id)
         return DeleteIndexResult(
             index_id=index.index_id,
             namespace_id=index.namespace_id,
@@ -87,4 +99,4 @@ class RAGEngine:
 
     def search(self, request: SearchRequest) -> SearchResult:
         """执行检索请求并返回命中结果与上下文。"""
-        return self.search_service.search(request)
+        return self.search_use_case.search(request)

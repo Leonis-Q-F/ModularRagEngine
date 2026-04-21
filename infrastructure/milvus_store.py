@@ -5,9 +5,9 @@ from typing import Any
 
 from pymilvus import AnnSearchRequest, DataType, Function, FunctionType, MilvusClient, RRFRanker, WeightedRanker
 
+from ..application.contracts import SearchFilters, VectorHit, VectorRecord
 from ..config import settings
 from ..domain.entities import RetrievalIndex
-from ..domain.value_objects import SearchFilters, VectorHit, VectorRecord
 
 
 def build_milvus_ranker(

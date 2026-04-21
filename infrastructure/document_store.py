@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from ..application.contracts import ChunkBundle
 from ..config import settings
 from ..domain.entities import IndexEntry, Namespace, ParentChunk, RetrievalIndex, SourceDocument
-from ..domain.value_objects import ChunkBundle
 from .persistence.bootstrap import bootstrap_schema
 from .persistence.connection import PostgresConnectionConfig, PostgresConnectionFactory
 from .persistence.repositories import ContentRepository, IndexRepository, NamespaceRepository

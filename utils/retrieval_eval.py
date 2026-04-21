@@ -12,7 +12,7 @@ from psycopg import sql
 
 from ModularRagEngine import RAGEngine
 from ModularRagEngine.application.dto import IngestFilesRequest, SearchRequest
-from ModularRagEngine.application.index_service import IndexService
+from ModularRagEngine.application.services.indexing_service import IndexingService
 from ModularRagEngine.config import settings
 from ModularRagEngine.infrastructure.document_store import DocumentStore
 from ModularRagEngine.infrastructure.milvus_store import MilvusStore
@@ -232,9 +232,9 @@ def aggregate_metrics(case_results: list[dict[str, Any]], ks: list[int], top_con
     return summary
 
 
-def build_cleanup_index_service() -> IndexService:
+def build_cleanup_index_service() -> IndexingService:
     """构造只用于清理路径的索引服务。"""
-    return IndexService(
+    return IndexingService(
         document_store=DocumentStore(),
         vector_store=MilvusStore(),
         embedding_service=CleanupEmbeddingStub(),
@@ -245,7 +245,7 @@ def cleanup(
     namespace_id,
     index_id,
     keep_artifacts: bool,
-    index_service: IndexService | None = None,
+    index_service: IndexingService | None = None,
 ) -> dict[str, Any]:
     """清理评测产生的 PGSQL 和 Milvus 数据。"""
     if keep_artifacts:
