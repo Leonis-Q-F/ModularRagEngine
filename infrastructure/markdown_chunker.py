@@ -234,6 +234,7 @@ class MarkdownChunker(BaseModel):
                     start_char=start_char,
                     end_char=end_char,
                     metadata={
+                        **doc.metadata,
                         "file_name": doc.file_name,
                         "file_type": doc.file_type,
                         "token_count": token_count,

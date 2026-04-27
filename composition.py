@@ -16,6 +16,7 @@ from .application.services.indexing_service import IndexingService
 from .application.services.namespace_resolution_service import NamespaceResolutionService
 from .application.use_cases.ingest import IngestUseCase
 from .application.use_cases.search import SearchUseCase
+from .config import settings
 from .infrastructure.document_loader import DocumentLoader
 from .infrastructure.document_store import DocumentStore
 from .infrastructure.embedding_service import EmbeddingService
@@ -63,6 +64,7 @@ def build_engine_components(
         document_store=resolved_document_store,
         vector_store=resolved_vector_store,
         embedding_service=resolved_embedding_service,
+        embedding_batch_size=getattr(resolved_embedding_service, "batch_size", settings.embedding_batch_size),
     )
     ingest_use_case = IngestUseCase(
         document_store=resolved_document_store,

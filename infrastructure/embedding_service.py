@@ -19,6 +19,7 @@ class EmbeddingService:
         self._model = model or (model_factory or build_embedding_model)()
         self.provider_name = provider_name or settings.embedding_provider
         self.model_name = self._resolve_model_name()
+        self.batch_size = max(int(settings.embedding_batch_size), 1)
         self._dimension: int | None = self._resolve_dimension_from_model()
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:

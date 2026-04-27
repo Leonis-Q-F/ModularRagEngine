@@ -4,7 +4,6 @@ from typing import Literal, Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 BASE_DIR = Path(__file__).resolve().parent
 ENV_FILE = BASE_DIR / ".env"
 
@@ -25,6 +24,7 @@ class Settings(BaseSettings):
     milvus_rrf_k: int = Field(default=60, ge=1)
     milvus_collect_score_breakdown: bool = False
     milvus_sparse_inverted_index_algo: Literal["DAAT_MAXSCORE", "DAAT_WAND", "TAAT_NAIVE"] = "DAAT_MAXSCORE"
+    milvus_upsert_batch_size: int = Field(default=1000, ge=1)
     postgres_host: str = "localhost"
     postgres_port: int = Field(default=5432, ge=1)
     postgres_db: str = "postgres"

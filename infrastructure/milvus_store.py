@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from pymilvus import AnnSearchRequest, DataType, Function, FunctionType, MilvusClient, RRFRanker, WeightedRanker
 
@@ -39,6 +40,12 @@ class MilvusRawHit:
 class MilvusStore:
     """基于 Milvus 服务的向量检索适配器。"""
 
+    _DENSE_INDEX_NAME = "dense_autoindex"
+    _SPARSE_INDEX_NAME = "sparse_bm25"
+    _LANGUAGE_INDEX_NAME = "language_inverted"
+    _FILE_TYPE_INDEX_NAME = "file_type_inverted"
+    _SEARCH_OUTPUT_FIELDS = ["entry_id", "file_type", "language", "metadata", "is_active"]
+
     def __init__(
         self,
         uri: str | None = None,
@@ -47,6 +54,7 @@ class MilvusStore:
         timeout: float | None = None,
         collect_score_breakdown: bool | None = None,
         sparse_inverted_index_algo: str | None = None,
+        upsert_batch_size: int | None = None,
         client: MilvusClient | None = None,
     ) -> None:
         """初始化 Milvus 客户端连接。"""
@@ -64,12 +72,17 @@ class MilvusStore:
             else bool(settings.milvus_collect_score_breakdown)
         )
         self._sparse_inverted_index_algo = sparse_inverted_index_algo or settings.milvus_sparse_inverted_index_algo
-        self._client = client or MilvusClient(
-            uri=self._uri,
-            token=self._token or "",
-            db_name=self._db_name,
-            timeout=self._timeout,
-        )
+        self._upsert_batch_size = max(int(upsert_batch_size or settings.milvus_upsert_batch_size), 1)
+
+        client_kwargs: dict[str, Any] = {
+            "uri": self._uri,
+            "timeout": self._timeout,
+        }
+        if self._db_name:
+            client_kwargs["db_name"] = self._db_name
+        if self._token:
+            client_kwargs["token"] = self._token
+        self._client = client or MilvusClient(**client_kwargs)
 
     def ensure_collections(self, index: RetrievalIndex) -> RetrievalIndex:
         """确保当前索引的中英文 collection 已存在。"""
@@ -89,6 +102,24 @@ class MilvusStore:
             language="en",
         )
         return index
+
+    def delete_entries(self, index: RetrievalIndex, doc_ids: list[UUID] | None = None) -> None:
+        """删除索引下指定文档的旧向量，避免 stale hit 挤占召回池。"""
+        delete_filters = self._build_delete_filters(index=index, doc_ids=doc_ids)
+        if not delete_filters:
+            return
+
+        for collection_name in filter(None, [index.zh_collection_name, index.en_collection_name]):
+            if not self._client.has_collection(collection_name=collection_name, timeout=self._timeout):
+                continue
+            self._ensure_collection_indexed(collection_name=collection_name)
+            self._ensure_collection_loaded(collection_name=collection_name)
+            for delete_filter in delete_filters:
+                self._client.delete(
+                    collection_name=collection_name,
+                    filter=delete_filter,
+                    timeout=self._timeout,
+                )
 
     def upsert_entries(self, index: RetrievalIndex, records: list[VectorRecord]) -> None:
         """把索引记录写入对应语言的 collection。"""
@@ -121,9 +152,11 @@ class MilvusStore:
             )
 
         for collection_name, payload in grouped_records.items():
-            self._client.upsert(collection_name=collection_name, data=payload, timeout=self._timeout)
+            for batch in self._batched(payload, self._upsert_batch_size):
+                self._client.upsert(collection_name=collection_name, data=batch, timeout=self._timeout)
             self._client.flush(collection_name=collection_name, timeout=self._timeout)
-            self._client.load_collection(collection_name=collection_name, timeout=self._timeout)
+            self._ensure_collection_indexed(collection_name=collection_name)
+            self._ensure_collection_loaded(collection_name=collection_name)
 
     def hybrid_search(
         self,
@@ -139,7 +172,10 @@ class MilvusStore:
         search_limit = max(top_k * 5, 20)
         hits_by_entry_id: dict[str, VectorHit] = {}
 
+        self.ensure_collections(index)
         for collection_name in self._target_collections(index=index, filters=normalized_filters):
+            self._ensure_collection_indexed(collection_name=collection_name)
+            self._ensure_collection_loaded(collection_name=collection_name)
             hybrid_hits = self._hybrid_search_collection(
                 collection_name=collection_name,
                 query_text=query_text,
@@ -191,7 +227,7 @@ class MilvusStore:
                 self._client.drop_collection(collection_name=collection_name, timeout=self._timeout)
 
     def _ensure_collection(self, collection_name: str, dim: int, language: str) -> None:
-        """按给定 schema 和索引配置创建 collection。"""
+        """按给定 schema 创建 collection，索引与加载在写入后单独保证。"""
         if self._client.has_collection(collection_name=collection_name, timeout=self._timeout):
             return
 
@@ -229,38 +265,11 @@ class MilvusStore:
             )
         )
 
-        index_params = MilvusClient.prepare_index_params()
-        index_params.add_index(
-            field_name="dense_vector",
-            index_name="dense_autoindex",
-            index_type="AUTOINDEX",
-            metric_type="COSINE",
-        )
-        index_params.add_index(
-            field_name="sparse_vector",
-            index_name="sparse_bm25",
-            index_type="SPARSE_INVERTED_INDEX",
-            metric_type="BM25",
-            params={"inverted_index_algo": self._sparse_inverted_index_algo},
-        )
-        index_params.add_index(
-            field_name="language",
-            index_name="language_inverted",
-            index_type="INVERTED",
-        )
-        index_params.add_index(
-            field_name="file_type",
-            index_name="file_type_inverted",
-            index_type="INVERTED",
-        )
-
         self._client.create_collection(
             collection_name=collection_name,
             schema=schema,
-            index_params=index_params,
             timeout=self._timeout,
         )
-        self._client.load_collection(collection_name=collection_name, timeout=self._timeout)
 
     def _hybrid_search_collection(
         self,
@@ -295,7 +304,7 @@ class MilvusStore:
                 rrf_k=self._rrf_k,
             ),
             limit=limit,
-            output_fields=["file_type", "language", "metadata", "is_active"],
+            output_fields=self._SEARCH_OUTPUT_FIELDS,
             timeout=self._timeout,
         )
         return self._raw_hits_from_result(results[0] if results else [])
@@ -314,7 +323,7 @@ class MilvusStore:
             anns_field="dense_vector",
             limit=limit,
             filter=expr,
-            output_fields=["file_type", "language", "metadata", "is_active"],
+            output_fields=self._SEARCH_OUTPUT_FIELDS,
             search_params={"metric_type": "COSINE", "params": {}},
             timeout=self._timeout,
         )
@@ -334,7 +343,7 @@ class MilvusStore:
             anns_field="sparse_vector",
             limit=limit,
             filter=expr,
-            output_fields=["file_type", "language", "metadata", "is_active"],
+            output_fields=self._SEARCH_OUTPUT_FIELDS,
             search_params={"metric_type": "BM25", "params": {}},
             timeout=self._timeout,
         )
@@ -354,9 +363,11 @@ class MilvusStore:
         clauses = ["is_active == true"]
 
         if filters.language is not None:
-            clauses.append(f'language == "{self._escape_string(filters.language.value)}"')
+            clauses.append(f'language == {self._format_filter_value(filters.language.value)}')
         if filters.file_type is not None:
-            clauses.append(f'file_type == "{self._escape_string(filters.file_type)}"')
+            clauses.append(f'file_type == {self._format_filter_value(filters.file_type)}')
+        for key, value in filters.metadata.items():
+            clauses.append(f'metadata["{self._escape_string(key)}"] == {self._format_filter_value(value)}')
 
         return " and ".join(clauses)
 
@@ -391,13 +402,101 @@ class MilvusStore:
         """转义 Milvus 过滤表达式中的字符串。"""
         return value.replace("\\", "\\\\").replace('"', '\\"')
 
+    def _format_filter_value(self, value: str | int | float | bool) -> str:
+        """把 Python 标量值转换为 Milvus 表达式字面量。"""
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, str):
+            return f'"{self._escape_string(value)}"'
+        return str(value)
+
+    def _build_delete_filters(self, index: RetrievalIndex, doc_ids: list[UUID] | None) -> list[str]:
+        """按文档分批构造删除过滤条件，避免旧向量继续参与召回。"""
+        base_clause = f'index_id == {self._format_filter_value(str(index.index_id))}'
+        if not doc_ids:
+            return [base_clause]
+
+        filters: list[str] = []
+        normalized_doc_ids = [str(doc_id) for doc_id in doc_ids]
+        for batch in self._batched(normalized_doc_ids, self._upsert_batch_size):
+            doc_id_literals = ", ".join(self._format_filter_value(doc_id) for doc_id in batch)
+            filters.append(f"{base_clause} and doc_id in [{doc_id_literals}]")
+        return filters
+
+    def _ensure_collection_indexed(self, collection_name: str) -> None:
+        """保证 collection 的向量与标量索引都已创建。"""
+        existing_indexes = set(self._client.list_indexes(collection_name=collection_name))
+        index_params = MilvusClient.prepare_index_params()
+        has_missing_indexes = False
+
+        if self._DENSE_INDEX_NAME not in existing_indexes:
+            has_missing_indexes = True
+            index_params.add_index(
+                field_name="dense_vector",
+                index_name=self._DENSE_INDEX_NAME,
+                index_type="AUTOINDEX",
+                metric_type="COSINE",
+            )
+        if self._SPARSE_INDEX_NAME not in existing_indexes:
+            has_missing_indexes = True
+            index_params.add_index(
+                field_name="sparse_vector",
+                index_name=self._SPARSE_INDEX_NAME,
+                index_type="SPARSE_INVERTED_INDEX",
+                metric_type="BM25",
+                params={"inverted_index_algo": self._sparse_inverted_index_algo},
+            )
+        if self._LANGUAGE_INDEX_NAME not in existing_indexes:
+            has_missing_indexes = True
+            index_params.add_index(
+                field_name="language",
+                index_name=self._LANGUAGE_INDEX_NAME,
+                index_type="INVERTED",
+            )
+        if self._FILE_TYPE_INDEX_NAME not in existing_indexes:
+            has_missing_indexes = True
+            index_params.add_index(
+                field_name="file_type",
+                index_name=self._FILE_TYPE_INDEX_NAME,
+                index_type="INVERTED",
+            )
+
+        if not has_missing_indexes:
+            return
+
+        if self._is_collection_loaded(collection_name):
+            self._client.release_collection(collection_name=collection_name, timeout=self._timeout)
+        self._client.create_index(collection_name=collection_name, index_params=index_params, timeout=self._timeout)
+
+    def _ensure_collection_loaded(self, collection_name: str) -> None:
+        """保证 collection 已加载，Milvus 重启或 release 后可自愈。"""
+        if self._is_collection_loaded(collection_name):
+            return
+        self._client.load_collection(collection_name=collection_name, timeout=self._timeout)
+
+    def _is_collection_loaded(self, collection_name: str) -> bool:
+        """判断 collection 当前是否已加载到内存。"""
+        state = self._client.get_load_state(collection_name=collection_name, timeout=self._timeout).get("state")
+        state_name = getattr(state, "name", None) or str(state)
+        return "Loaded" in state_name
+
+    def _batched(self, items: list[Any], size: int) -> list[list[Any]]:
+        """按固定大小切分列表。"""
+        return [items[start : start + size] for start in range(0, len(items), size)]
+
     def _raw_hits_from_result(self, items: list[dict[str, Any]]) -> list[MilvusRawHit]:
         """把 Milvus SDK 返回的原始字典转换为局部强类型对象。"""
-        return [
-            MilvusRawHit(
-                entry_id=str(item["entry_id"]),
-                distance=float(item["distance"]),
-                entity=dict(item.get("entity", {})),
+        raw_hits: list[MilvusRawHit] = []
+        for item in items:
+            entity = dict(item.get("entity", {}))
+            raw_entry_id = item.get("entry_id") or item.get("id") or entity.get("entry_id") or entity.get("id")
+            if raw_entry_id is None:
+                raise KeyError("Milvus 返回结果缺少主键字段 entry_id/id。")
+            raw_hits.append(
+                MilvusRawHit(
+                    entry_id=str(raw_entry_id),
+                    distance=float(item["distance"]),
+                    entity=entity,
+                )
             )
-            for item in items
-        ]
+        return raw_hits

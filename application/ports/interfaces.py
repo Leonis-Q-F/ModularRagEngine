@@ -24,6 +24,7 @@ class EmbeddingPort(Protocol):
     provider_name: str
     model_name: str
     dimension: int
+    batch_size: int
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """批量生成文本向量。"""
@@ -116,6 +117,10 @@ class DocumentStorePort(Protocol):
 class VectorStorePort(Protocol):
     def ensure_collections(self, index: RetrievalIndex) -> RetrievalIndex:
         """确保索引对应的向量 collection 已存在。"""
+        ...
+
+    def delete_entries(self, index: RetrievalIndex, doc_ids: list[UUID] | None = None) -> None:
+        """删除索引下指定文档的向量记录。"""
         ...
 
     def upsert_entries(self, index: RetrievalIndex, records: list[VectorRecord]) -> None:

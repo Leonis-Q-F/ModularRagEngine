@@ -19,6 +19,7 @@ class IndexingService:
         embedding_service: EmbeddingPort,
         retrieval_text_policy: str = RetrievalTextPolicy.HEADER_PATH_PLUS_CONTENT.value,
         chunk_version: str = DEFAULT_CHUNK_VERSION,
+        embedding_batch_size: int = 32,
     ) -> None:
         """注入索引构建所需的存储与向量依赖。"""
         self._document_store = document_store
@@ -26,10 +27,12 @@ class IndexingService:
         self._embedding_service = embedding_service
         self._retrieval_text_policy = RetrievalTextPolicy(retrieval_text_policy).value
         self._chunk_version = chunk_version
+        self._embedding_batch_size = max(int(embedding_batch_size), 1)
 
     def sync_documents_to_active_index(self, namespace_id: UUID, doc_ids: list[UUID]) -> RetrievalIndex:
         """把指定文档增量投影到当前激活索引。"""
         index = self._ensure_compatible_active_index(namespace_id)
+        self._vector_store.delete_entries(index=index, doc_ids=doc_ids)
         self._document_store.deactivate_index_entries(index.index_id, doc_ids=doc_ids)
         blocks = self._document_store.list_child_blocks(namespace_id=namespace_id, doc_ids=doc_ids)
         entries = self._project_entries(
@@ -182,26 +185,28 @@ class IndexingService:
         if not entries:
             return
 
-        vectors = self._embedding_service.embed_texts([entry.retrieval_text for entry in entries])
-        records = [
-            VectorRecord(
-                entry_id=entry.entry_id,
-                index_id=entry.index_id,
-                namespace_id=entry.namespace_id,
-                doc_id=entry.doc_id,
-                parent_id=entry.parent_id,
-                block_id=entry.block_id,
-                child_index=entry.child_index,
-                language=entry.language,
-                file_type=entry.file_type,
-                file_name=entry.file_name,
-                retrieval_text=entry.retrieval_text,
-                dense_vector=vector,
-                metadata=dict(entry.metadata),
-                index_version=entry.index_version,
-                chunk_version=entry.chunk_version,
-                is_active=entry.is_active,
-            )
-            for entry, vector in zip(entries, vectors, strict=True)
-        ]
-        self._vector_store.upsert_entries(index=index, records=records)
+        for start in range(0, len(entries), self._embedding_batch_size):
+            batch_entries = entries[start : start + self._embedding_batch_size]
+            vectors = self._embedding_service.embed_texts([entry.retrieval_text for entry in batch_entries])
+            records = [
+                VectorRecord(
+                    entry_id=entry.entry_id,
+                    index_id=entry.index_id,
+                    namespace_id=entry.namespace_id,
+                    doc_id=entry.doc_id,
+                    parent_id=entry.parent_id,
+                    block_id=entry.block_id,
+                    child_index=entry.child_index,
+                    language=entry.language,
+                    file_type=entry.file_type,
+                    file_name=entry.file_name,
+                    retrieval_text=entry.retrieval_text,
+                    dense_vector=vector,
+                    metadata=dict(entry.metadata),
+                    index_version=entry.index_version,
+                    chunk_version=entry.chunk_version,
+                    is_active=entry.is_active,
+                )
+                for entry, vector in zip(batch_entries, vectors, strict=True)
+            ]
+            self._vector_store.upsert_entries(index=index, records=records)
