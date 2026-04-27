@@ -59,7 +59,8 @@ class IndexingService:
         blocks = self._document_store.list_child_blocks(namespace_id=namespace.namespace_id)
         entries = self._project_entries(index=index, blocks=blocks, retrieval_text_policy=policy)
         saved_entries = self._document_store.save_index_entries(entries)
-        self._write_vectors(index=index, entries=saved_entries)
+        written_languages = self._write_vectors(index=index, entries=saved_entries, write_mode="insert")
+        self._vector_store.prepare_index_for_search(index=index, languages=written_languages)
         self._document_store.update_index_status(index.index_id, status=IndexStatus.READY.value, is_active=False)
         return self._document_store.activate_index(index.index_id)
 
@@ -83,7 +84,8 @@ class IndexingService:
         blocks = self._document_store.list_child_blocks(namespace_id=namespace_id)
         entries = self._project_entries(index=new_index, blocks=blocks, retrieval_text_policy=self._retrieval_text_policy)
         saved_entries = self._document_store.save_index_entries(entries)
-        self._write_vectors(index=new_index, entries=saved_entries)
+        written_languages = self._write_vectors(index=new_index, entries=saved_entries, write_mode="insert")
+        self._vector_store.prepare_index_for_search(index=new_index, languages=written_languages)
         self._document_store.update_index_status(new_index.index_id, status=IndexStatus.READY.value, is_active=False)
         return self._document_store.activate_index(new_index.index_id)
 
@@ -180,11 +182,17 @@ class IndexingService:
             return self._retrieval_text_policy
         return RetrievalTextPolicy(retrieval_text_policy).value
 
-    def _write_vectors(self, index: RetrievalIndex, entries: list[IndexEntry]) -> None:
+    def _write_vectors(
+        self,
+        index: RetrievalIndex,
+        entries: list[IndexEntry],
+        write_mode: str = "upsert",
+    ) -> set[str]:
         """为 entry 生成向量并写入向量库。"""
         if not entries:
-            return
+            return set()
 
+        written_languages: set[str] = set()
         for start in range(0, len(entries), self._embedding_batch_size):
             batch_entries = entries[start : start + self._embedding_batch_size]
             vectors = self._embedding_service.embed_texts([entry.retrieval_text for entry in batch_entries])
@@ -209,4 +217,12 @@ class IndexingService:
                 )
                 for entry, vector in zip(batch_entries, vectors, strict=True)
             ]
-            self._vector_store.upsert_entries(index=index, records=records)
+            written_languages.update(entry.language for entry in batch_entries)
+            if write_mode == "insert":
+                self._vector_store.insert_entries(index=index, records=records)
+                continue
+            if write_mode == "upsert":
+                self._vector_store.upsert_entries(index=index, records=records)
+                continue
+            raise ValueError(f"不支持的向量写入模式：{write_mode}")
+        return written_languages

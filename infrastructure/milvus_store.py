@@ -121,39 +121,24 @@ class MilvusStore:
                     timeout=self._timeout,
                 )
 
+    def insert_entries(self, index: RetrievalIndex, records: list[VectorRecord]) -> None:
+        """向新建索引的 collection 分批写入记录，不在批次中途 flush/index/load。"""
+        self._write_entries(index=index, records=records, operation="insert")
+
     def upsert_entries(self, index: RetrievalIndex, records: list[VectorRecord]) -> None:
-        """把索引记录写入对应语言的 collection。"""
-        if not records:
+        """向已存在索引的 collection 分批 upsert 记录。"""
+        self._write_entries(index=index, records=records, operation="upsert")
+
+    def prepare_index_for_search(self, index: RetrievalIndex, languages: set[str] | None = None) -> None:
+        """在批量写入完成后统一 flush、建索引并加载 collection。"""
+        self.ensure_collections(index)
+        target_collections = self._collections_for_languages(index=index, languages=languages)
+        if not target_collections:
             return
 
-        self.ensure_collections(index)
-        grouped_records: dict[str, list[dict[str, Any]]] = {}
-        for record in records:
-            collection_name = index.zh_collection_name if record.language == "zh" else index.en_collection_name
-            grouped_records.setdefault(collection_name, []).append(
-                {
-                    "entry_id": str(record.entry_id),
-                    "index_id": str(record.index_id),
-                    "namespace_id": str(record.namespace_id),
-                    "doc_id": str(record.doc_id),
-                    "parent_id": str(record.parent_id),
-                    "block_id": str(record.block_id),
-                    "child_index": record.child_index,
-                    "language": record.language,
-                    "file_type": record.file_type,
-                    "file_name": record.file_name,
-                    "retrieval_text": record.retrieval_text,
-                    "dense_vector": record.dense_vector,
-                    "metadata": dict(record.metadata),
-                    "index_version": record.index_version,
-                    "chunk_version": record.chunk_version,
-                    "is_active": record.is_active,
-                }
-            )
-
-        for collection_name, payload in grouped_records.items():
-            for batch in self._batched(payload, self._upsert_batch_size):
-                self._client.upsert(collection_name=collection_name, data=batch, timeout=self._timeout)
+        for collection_name in target_collections:
+            if not self._client.has_collection(collection_name=collection_name, timeout=self._timeout):
+                continue
             self._client.flush(collection_name=collection_name, timeout=self._timeout)
             self._ensure_collection_indexed(collection_name=collection_name)
             self._ensure_collection_loaded(collection_name=collection_name)
@@ -479,6 +464,61 @@ class MilvusStore:
         state = self._client.get_load_state(collection_name=collection_name, timeout=self._timeout).get("state")
         state_name = getattr(state, "name", None) or str(state)
         return "Loaded" in state_name
+
+    def _collections_for_languages(self, index: RetrievalIndex, languages: set[str] | None = None) -> list[str]:
+        """根据语言集合返回需要处理的 collection 名称。"""
+        if languages is None:
+            return [collection for collection in [index.zh_collection_name, index.en_collection_name] if collection]
+
+        target_collections: list[str] = []
+        if "zh" in languages and index.zh_collection_name:
+            target_collections.append(index.zh_collection_name)
+        if "en" in languages and index.en_collection_name:
+            target_collections.append(index.en_collection_name)
+        return target_collections
+
+    def _serialize_record(self, record: VectorRecord) -> dict[str, Any]:
+        """把领域层向量记录转换为 Milvus 可写入字典。"""
+        return {
+            "entry_id": str(record.entry_id),
+            "index_id": str(record.index_id),
+            "namespace_id": str(record.namespace_id),
+            "doc_id": str(record.doc_id),
+            "parent_id": str(record.parent_id),
+            "block_id": str(record.block_id),
+            "child_index": record.child_index,
+            "language": record.language,
+            "file_type": record.file_type,
+            "file_name": record.file_name,
+            "retrieval_text": record.retrieval_text,
+            "dense_vector": record.dense_vector,
+            "metadata": dict(record.metadata),
+            "index_version": record.index_version,
+            "chunk_version": record.chunk_version,
+            "is_active": record.is_active,
+        }
+
+    def _write_entries(self, index: RetrievalIndex, records: list[VectorRecord], operation: str) -> None:
+        """把记录按语言和批次写入 Milvus，不触发构建尾部动作。"""
+        if not records:
+            return
+
+        if operation not in {"insert", "upsert"}:
+            raise ValueError(f"不支持的 Milvus 写入操作：{operation}")
+
+        self.ensure_collections(index)
+        grouped_records: dict[str, list[dict[str, Any]]] = {}
+        for record in records:
+            collection_name = index.zh_collection_name if record.language == "zh" else index.en_collection_name
+            grouped_records.setdefault(collection_name, []).append(self._serialize_record(record))
+
+        write_fn = getattr(self._client, operation, None)
+        if write_fn is None:
+            raise AttributeError(f"MilvusClient 缺少 {operation} 方法。")
+
+        for collection_name, payload in grouped_records.items():
+            for batch in self._batched(payload, self._upsert_batch_size):
+                write_fn(collection_name=collection_name, data=batch, timeout=self._timeout)
 
     def _batched(self, items: list[Any], size: int) -> list[list[Any]]:
         """按固定大小切分列表。"""

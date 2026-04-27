@@ -123,8 +123,16 @@ class VectorStorePort(Protocol):
         """删除索引下指定文档的向量记录。"""
         ...
 
+    def insert_entries(self, index: RetrievalIndex, records: list[VectorRecord]) -> None:
+        """向新建索引的 collection 追加向量记录。"""
+        ...
+
     def upsert_entries(self, index: RetrievalIndex, records: list[VectorRecord]) -> None:
         """把索引记录写入向量库。"""
+        ...
+
+    def prepare_index_for_search(self, index: RetrievalIndex, languages: set[str] | None = None) -> None:
+        """在批量写入完成后统一创建索引并加载 collection。"""
         ...
 
     def hybrid_search(
